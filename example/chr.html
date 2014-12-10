@@ -41,7 +41,7 @@
     var channel = evt.data.substring(0,split);
     var data = evt.data.substring(split+1,evt.data.length);
     writeToScreen('<span style="color: blue;">'+channel+': ' + data+'</span>');
-    websocket.close();
+    //websocket.close();
   }
 
   function onError(evt)

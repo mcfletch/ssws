@@ -124,6 +124,7 @@ class Channel(object):
         assert os.path.exists(self.server.spool_dir)
         try:
             with open(filename, 'wb') as fh:
+                fh.write(self.channel_id+',')
                 fh.write(message)
             os.rename(filename, final)
         except Exception as err:

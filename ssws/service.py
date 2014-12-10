@@ -42,6 +42,7 @@ class Session(base.Session):
         self.readable = set()
         self.writable = set()
         self.outgoing_queue = []
+        self.protocols = []
         super(Session, self).__init__(*args, **named)
     
     def setup(self):
@@ -61,6 +62,8 @@ class Session(base.Session):
         for channel in os.listdir(self.writable_path):
             self.writable.add(channel)
     def cleanup(self):
+        for protocol in self.protocols:
+            protocol.transport.loseConnection()
         for path in (self.readable_path, self.writable_path):
             try:
                 self.server.inotify.ignore(filepath.FilePath(path))
@@ -83,10 +86,12 @@ class Session(base.Session):
     
     def add_message(self, filename):
         """Hardlink filename into our message queue"""
+        print 'adding message to', self.session_id
         target = os.path.join(self.outbox_path, os.path.basename(filename))
         assert not os.path.exists(target), """Duplicate message id, so much for uuid"""
         os.link(filename, target )
         self.outgoing_queue.append(target)
+        self.send_pending()
     def retire_message(self, filename):
         """Retire message after it has been sent"""
         try:
@@ -104,6 +109,10 @@ class Session(base.Session):
             self.server.channel(channel_id).write(data)
             return True 
         return False
+    def send_pending(self):
+        """Called when we may have something to send..."""
+        for protocol in self.protocols:
+            reactor.callLater(0, protocol.send_pending)
 
 class Server(base.Server):
     """Twisted API for the server"""
@@ -170,28 +179,50 @@ class SSWSProtocol(Protocol):
         self.transport.write('%s,%s'%(channel, json.dumps({'error':True, 'message':message})))
     def dataReceived(self, data):
         if self.transport.protocol.state == txws.FRAMES:
-            session_id = self.transport.protocol.location.lstrip('/')
-            if not base.simple_id(session_id):
-                self.write_error("session invalid")
-                self.transport.loseConnection()
-                return
-            session = self.transport.factory.server.session(session_id, create=False)
-            if not session:
-                self.write_error("session unknown")
-                self.transport.loseConnection()
-                return
+            if not self._session:
+                session_id = self.transport.protocol.location.lstrip('/')
+                if not base.simple_id(session_id):
+                    self.write_error("session invalid")
+                    self.transport.loseConnection()
+                    return
+                session = self.factory.server.session(session_id, create=False)
+                if not session:
+                    self.write_error("session unknown")
+                    self.transport.loseConnection()
+                    return
+                self._session = session
+                self._session.protocols.append(self)
+            else:
+                session = self._session
             channel_id, data = data.split(',', 1)
-            if not base.simple_id(channel_id):
-                self.write_error("invalid channel")
-                self.transport.loseConnection()
-                return
             if not channel_id:
                 """Protocol-level messages, currently nothing"""
                 pass 
+            elif not base.simple_id(channel_id):
+                self.write_error("invalid channel")
+                self.transport.loseConnection()
+                return
             else:
                 session.on_incoming(channel_id, data)
+    _session = None
+    def connectionLost(self, reason):
+        try:
+            self._session.protocols.remove(self)
+        except (AttributeError, ValueError):
+            pass 
+    def send_pending(self):
+        if not self.transport.protocol.state == txws.FRAMES:
+            return 
         
-    
+        if self._session and self._session.outgoing_queue:
+            while self._session.outgoing_queue:
+                message = self._session.outgoing_queue.pop()
+                # oh, hello, we stripped off the channel, duh!
+                self.transport.write(open(message, 'rb').read())
+                self._session.retire_message(message)
+        else:
+            print 'nothing to do'
+
 class SSWSFactory(Factory):
     protocol = SSWSProtocol
     def __init__(self, server, *args, **named ):

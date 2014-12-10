@@ -43,6 +43,8 @@ class BaseTests(TestCase):
         channel = self.server.channel('moo')
         filename = channel.write('Vladivostok')
         assert os.path.exists(filename)
+        content = open(filename, 'rb').read()
+        assert content == 'moo,Vladivostok', content
     
     def test_write_cleanup(self):
         channel = self.server.channel('moo')
