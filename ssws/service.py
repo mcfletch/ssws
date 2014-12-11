@@ -124,8 +124,20 @@ class Session(base.Session):
         return False
     def send_pending(self):
         """Called when we may have something to send..."""
-        for protocol in self.protocols:
-            reactor.callLater(0, protocol.send_pending)
+        to_send = self.outgoing_queue[:]
+        del self.outgoing_queue[:len(to_send)]
+        send_to = [protocol for protocol in self.protocols if protocol.ready]
+        if send_to:
+            for message in to_send:
+                with open(message, 'rb') as fh:
+                    content = fh.read()
+                for protocol in send_to:
+                    protocol.add_message(content)
+                    # duh, this should wait until all protocols have sent it or 
+                    # errored out, not have the first one retire the message!
+                self.retire_message(message)
+            for protocol in send_to:
+                reactor.callLater(0, protocol.send_pending)
 
 class Server(base.Server):
     """Twisted API for the server"""
@@ -216,6 +228,11 @@ class Server(base.Server):
     
 from twisted.internet.protocol import Protocol, Factory
 class SSWSProtocol(Protocol):
+    ready = False
+    def __init__(self, *args, **named):
+        self.outgoing_queue = []
+    def add_message(self, message):
+        self.outgoing_queue.append(message)
     def write_error(self, message, channel=''):
         self.transport.write('%s,%s'%(channel, json.dumps({'error':True, 'message':message})))
     def write_welcome(self, channel=''):
@@ -229,7 +246,7 @@ class SSWSProtocol(Protocol):
                     self.write_error("session invalid")
                     self.transport.loseConnection()
                     return
-                log.msg("New Session: %r"%( session_id, ))
+                log.msg("New Connection on Session: %r"%( session_id, ))
                 session = self.factory.server.session(session_id, create=False)
                 if not session:
                     log.err("Unkown/no-auth session: %r"%( session_id, ))
@@ -241,7 +258,12 @@ class SSWSProtocol(Protocol):
                 self.write_welcome()
             else:
                 session = self._session
-            channel_id, data = data.split(',', 1)
+            try:
+                channel_id, data = data.split(',', 1)
+            except ValueError:
+                log.error('Mis-formatted request (no ,)')
+                self.write_error('Missing comma in request')
+                return 
             if not channel_id:
                 """Protocol-level messages, currently nothing"""
                 pass 
@@ -252,8 +274,10 @@ class SSWSProtocol(Protocol):
                 return
             else:
                 session.on_incoming(channel_id, data)
+            self.ready = True
     _session = None
     def connectionLost(self, reason):
+        self.ready = False
         try:
             self._session.protocols.remove(self)
         except (AttributeError, ValueError):
@@ -261,13 +285,9 @@ class SSWSProtocol(Protocol):
     def send_pending(self):
         if not self.transport.protocol.state == txws.FRAMES:
             return 
-        
-        if self._session and self._session.outgoing_queue:
-            while self._session.outgoing_queue:
-                message = self._session.outgoing_queue.pop()
-                # oh, hello, we stripped off the channel, duh!
-                self.transport.write(open(message, 'rb').read())
-                self._session.retire_message(message)
+        while self.outgoing_queue:
+            message = self.outgoing_queue.pop()
+            self.transport.write(message)
 
 class SSWSFactory(Factory):
     protocol = SSWSProtocol

@@ -28,7 +28,10 @@ $(document).ready( function() {
                 overall.addClass('error');
             }
             if (content.message) {
-                status.text(content.message || 'Error reported by server');
+                var message = content.message;
+                if (message !== status.text()) {
+                    status.text(message);
+                }
             }
             return;
         }
