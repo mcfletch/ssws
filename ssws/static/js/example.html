@@ -1,0 +1,34 @@
+<!DOCTYPE html>
+
+<meta charset="utf-8" />
+
+<title>WebSocket Test</title>
+
+<h2>WebSocket Test</h2>
+
+<div class="ssws" data-ws-uri="ws://localhost:5600/example-session">
+</div>
+<script src="//ajax.googleapis.com/ajax/libs/jquery/2.1.1/jquery.min.js"></script>
+<script src="./ssws.js"></script>
+<script language="javascript" type="text/javascript">
+$(document).ready( function() {
+    var overall = $('.ssws');
+    var uri = overall.attr('data-ws-uri');
+    var server = $.ssws({'uri':uri,'retry':true});
+    server.register('',function( channel, message ) {
+        var holder = $('.channel .messages[data-channel='+channel+']');
+        if (!holder.length) {
+            var wrapper = $('<div class="channel"><h2></h2><ul class="messages"></ul></div>');
+            wrapper.find('h2').text(channel);
+            holder = wrapper.find('.messages');
+            holder.attr('data-channel',channel);
+            overall.append(wrapper);
+        }
+        var new_message = $('<li><span class="message"></span></li>');
+        new_message.find('.message').text(message);
+        holder.append(new_message);
+    });
+    server.start();
+});
+</script>
+</html> 
