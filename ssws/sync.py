@@ -58,8 +58,9 @@ def alnum_string_or_empty(input):
 parser = argparse.ArgumentParser(description='Do server-side ssws configuration from scripts/command lines')
 parser.add_argument('session', metavar='SESSION', type=alnum_string,
                    help='Session being manipulated')
-parser.add_argument('--channel', metavar='CHANNEL', type=alnum_string_or_empty, default='',
-                   help='Channel to be manipulated')
+parser.add_argument('--channel', metavar='CHANNEL',action='append', type=alnum_string_or_empty,
+                    dest='channels', 
+                   help='Channel to be manipulated (argument can be repeated)')
 parser.add_argument('--writable', dest='writable', action='store_const',
                    const=True, default=False,
                    help='Allow the session to write to the given channel')
@@ -82,18 +83,22 @@ def session_main():
     session = server.session(arguments.session)
     if arguments.remove:
         session.cleanup()
-    elif not arguments.channel:
+    elif not arguments.channels:
         # just letting them connect so far...
         pass
     else:
         if arguments.writable:
-            session.add_writable(arguments.channel)
+            for channel in arguments.channels:
+                session.add_writable(channel)
         else:
-            session.remove_writable(arguments.channel)
+            for channel in arguments.channels:
+                session.remove_writable(channel)
         if arguments.readable:
-            session.add_readable(arguments.channel)
+            for channel in arguments.channels:
+                session.add_readable(channel)
         else:
-            session.remove_readable(arguments.channel)
+            for channel in arguments.channels:
+                session.remove_readable(channel)
 
 mparser = argparse.ArgumentParser(description='Do server-side ssws configuration from scripts/command lines')
 mparser.add_argument('channel', metavar='CHANNEL', type=alnum_string,

@@ -1,0 +1,11 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="ssws" data-ws-uri="{{redirect_url}}">
+<div class="status"></div>
+</div>
+{% endblock %}
+{% block page_scripts %}
+<script src="//ajax.googleapis.com/ajax/libs/jquery/2.1.1/jquery.min.js"></script>
+<script src="{{STATIC_URL}}js/ssws.js"></script>
+<script src="{{STATIC_URL}}js/ssws-chat-sample.js"></script>
+{% endblock %}

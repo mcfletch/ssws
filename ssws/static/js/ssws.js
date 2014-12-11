@@ -31,7 +31,7 @@
             if (self.uri) {
                 try {
                     self.socket = new WebSocket(self.uri);
-                } catch (e) {
+                } catch (err) {
                     self.error_callback('Connection failed '+err);
                     self.trigger_retry();
                     return null;
