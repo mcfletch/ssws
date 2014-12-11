@@ -6,12 +6,34 @@ front-end is running on an appliance-style server and
 we would like to get websockets updates from server 
 processes.
 
-This is *not* a large scale messaging solution, nor is 
-it intended to provide particularly robust messaging,
-messages can (easily) be lost. The point is to allow 
-for notifying a user when something big is happening 
-rather than trying to create a messaging middleware.
-The idea being that if they were to refresh they'd see 
-the update anyway, this just lets them know there's 
-a change *right now*.
+# Operation in Development
+
+Installation is done via pip:
+```bash
+$ virtualenv -p python2.7 ssws-testing
+$ source ssws-testing/bin/activate
+$ git clone https://github.com/mcfletch/ssws.git
+$ cd ssws
+$ python setup.py develop
+```
+You can play with the example by starting a web server in 
+the `ssws/ssws/static/js` directory:
+```bash
+$ cd ssws/ssws/static/js
+$ python -m "SimpleHttpServer" &
+```
+Open a web-browser and point it at http://localhost:8000/example.html
+You will see a notice that the connection was refused.
+Let's start the server and let the browser connect...
+```bash
+$ ssws-server &
+```
+Will start the server, your message in the browser should now say that 
+the session is unknown. The server has to explicitly allow the session 
+key to access the service, and further it has to allow reading 
+(and writing) explicitly for each channel.
+```bash
+$ ssws-session --readable --channel default example-session
+$ ssws-message --message "Hello World" default
+```
 
