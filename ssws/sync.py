@@ -6,6 +6,7 @@ want to write a message to a channel and/or add/remove
 sessions to/from a channel.
 """
 import os, sys
+import argparse
 from . import base
 
 class Channel(base.Channel):
@@ -44,7 +45,6 @@ class Server(base.Server):
     SESSION_CLASS = Session 
     CHANNEL_CLASS = Channel
 
-import argparse
 
 def alnum_string(input):
     if not base.simple_id(input):

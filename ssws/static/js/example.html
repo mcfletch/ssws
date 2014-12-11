@@ -6,17 +6,32 @@
 
 <h2>WebSocket Test</h2>
 
-<div class="ssws" data-ws-uri="ws://localhost:5600/example-session">
+<div class="ssws" data-ws-uri="ws://localhost:5775/example-session">
+<div class="status"></div>
 </div>
 <script src="//ajax.googleapis.com/ajax/libs/jquery/2.1.1/jquery.min.js"></script>
 <script src="./ssws.js"></script>
 <script language="javascript" type="text/javascript">
 $(document).ready( function() {
     var overall = $('.ssws');
+    var status = overall.find('.status');
     var uri = overall.attr('data-ws-uri');
     var server = $.ssws({'uri':uri,'retry':true});
     server.register('',function( channel, message ) {
-        var holder = $('.channel .messages[data-channel='+channel+']');
+        var holder;
+        overall.removeClass('error');
+        if (channel) {
+            holder = $('.channel .messages[data-channel='+channel+']');
+        } else {
+            var content = JSON.parse(message);
+            if (content.error) {
+                overall.addClass('error');
+            }
+            if (content.message) {
+                status.text(content.message || 'Error reported by server');
+            }
+            return;
+        }
         if (!holder.length) {
             var wrapper = $('<div class="channel"><h2></h2><ul class="messages"></ul></div>');
             wrapper.find('h2').text(channel);
