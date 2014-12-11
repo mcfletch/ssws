@@ -1,10 +1,11 @@
 """Messaging server service using Twisted and txws
 """
-import os, json, sys
+import os, json, sys, time
 from . import base
 from twisted.internet import inotify
 from twisted.python import filepath, log
 from twisted.application import strports
+from twisted.internet.task import LoopingCall
 from twisted.internet import reactor
 import txws
 
@@ -38,6 +39,7 @@ class Channel(base.Channel):
                 if self.channel_id in session.readable:
                     session.add_message(path.path)
             os.unlink(path.path)
+            self.mark_active()
 
 class Session(base.Session):
     def __init__(self, *args, **named):
@@ -75,15 +77,21 @@ class Session(base.Session):
     
     def on_readable_change(self, _, path, mask ):
         base = os.path.basename(path.path)
-        if mask & inotify.IN_CREATE:
+        if mask & inotify.IN_CREATE or mask & inotify.IN_MOVED_TO or mask:
+            log.msg('Granting read to %s on %s'%(self.session_id, base))
+            self.mark_active()
             self.readable.add(base)
         elif mask & inotify.IN_DELETE:
+            log.msg('Revoking read from %s on %s'%(self.session_id, base))
             self.readable.remove(base)
     def on_writable_change(self, _, path, mask ):
         base = os.path.basename(path.path)
-        if mask & inotify.IN_CREATE:
+        if mask & inotify.IN_CREATE or mask & inotify.IN_MOVED_TO or mask:
+            log.msg('Granting write to %s on %s'%(self.session_id, base))
+            self.mark_active()
             self.writable.add(base)
         elif mask & inotify.IN_DELETE:
+            log.msg('Revoking write from %s on %s'%(self.session_id, base))
             self.writable.remove(base)
     
     def add_message(self, filename):
@@ -94,6 +102,8 @@ class Session(base.Session):
         self.send_pending()
     def retire_message(self, filename):
         """Retire message after it has been sent"""
+        # we sent a message (or tried, at least)
+        self.mark_active()
         try:
             self.outgoing_queue.remove(filename)
         except ValueError:
@@ -106,6 +116,7 @@ class Session(base.Session):
     def on_incoming(self, channel_id, data):
         assert base.simple_id(channel_id)
         if channel_id in self.writable:
+            self.mark_active()
             self.server.channel(channel_id).write(data)
             return True 
         else:
@@ -140,6 +151,8 @@ class Server(base.Server):
             self.channel(channel_id, create=True)
         for session_id in os.listdir(self.sessions_path):
             self.session(session_id, create=True)
+        self.reaping_loop = LoopingCall(self.reaper)
+        self.reaping_loop.start(120.0)
     def cleanup(self):
         for path in (self.sessions_path, self.channels_path):
             try:
@@ -147,6 +160,7 @@ class Server(base.Server):
             except KeyError:
                 pass
         super(Server, self).cleanup()
+        self.reaping_loop.stop()
         
     def session(self, session_id, create=True):
         current = self.sessions.get(session_id)
@@ -163,18 +177,43 @@ class Server(base.Server):
 
     def on_channels_change(self, _, path, mask ):
         channel_id = os.path.basename(path.path)
-        if mask & inotify.IN_CREATE:
+        if mask & inotify.IN_CREATE or mask & inotify.IN_MOVED_TO or mask:
             self.channel(channel_id)
         elif mask & inotify.IN_DELETE:
             channel = self.channel(channel_id)
             channel.cleanup()
     def on_sessions_change(self, _, path, mask):
         session_id = os.path.basename(path.path)
-        if mask & inotify.IN_CREATE:
+        if mask & inotify.IN_CREATE or mask & inotify.IN_MOVED_TO or mask:
             self.session(session_id)
         elif mask & inotify.IN_DELETE:
             session = self.session(session_id)
             session.cleanup()
+            try:
+                del self.sessions[session_id]
+            except KeyError:
+                pass
+    
+    REAPING_FREQUENCY = 60*2
+    SESSION_TIMEOUT = 60*60*4
+    def reaper(self):
+        current =  time.time()
+        stale = current - self.SESSION_TIMEOUT
+        
+        for session_id, session in self.sessions.items():
+            last = session.last_active()
+            if last < stale:
+                if not session.protocols:
+                    log.msg('Clearing out session: %s'%(session_id))
+                    session.cleanup()
+                else:
+                    log.msg('Session %s is inactive, but has connections'%(session_id, ))
+        for channel_id, channel in self.channels.items():
+            last = channel.last_active()
+            if last < stale:
+                log.msg('Clearing out channel: %s'%(channel_id))
+                channel.cleanup()
+    
 from twisted.internet.protocol import Protocol, Factory
 class SSWSProtocol(Protocol):
     def write_error(self, message, channel=''):

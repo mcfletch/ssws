@@ -85,6 +85,14 @@ class Session(object):
         self.setup()
     def setup(self):
         _ensure_dirs([self.outbox_path, self.readable_path, self.writable_path])
+    def mark_active(self):
+        os.utime(self.session_path, None)
+    def last_active(self):
+        try:
+            return os.stat(self.session_path).st_mtime
+        except Exception:
+            # something is broken/stale/missing...
+            return 0
     
     @property
     def outbox_path(self):
@@ -97,7 +105,7 @@ class Session(object):
         return os.path.join(self.session_path, 'writable')
     
     def cleanup(self):
-        shutil.rmtree(self.session_path)
+        shutil.rmtree(self.session_path, True ) # ignore_errors
     
 class Channel(object):
     def __init__(self, server, channel_id):
@@ -107,6 +115,14 @@ class Channel(object):
         self.setup()
     def setup(self):
         _ensure_dirs([self.inbox_path, self.outbox_path])
+    def mark_active(self):
+        os.utime(self.channel_path, None)
+    def last_active(self):
+        try:
+            return os.stat(self.channel_path).st_mtime
+        except Exception:
+            # something is broken/stale/missing...
+            return 0
     @property
     def inbox_path(self):
         return os.path.join(self.channel_path, 'in')
@@ -134,9 +150,10 @@ class Channel(object):
                 except Exception:
                     pass 
             raise WriteError(str(err), message)
+        os.utime(self.channel_path, None)
         return final
     def cleanup(self):
-        shutil.rmtree(self.channel_path)
+        shutil.rmtree(self.channel_path, True) # ignore_errors
 
 def _ensure_dirs(directories):
     for directory in directories:
