@@ -240,7 +240,7 @@ class SSWSProtocol(Protocol):
     def dataReceived(self, data):
         if self.transport.protocol.state == txws.FRAMES:
             if not self._session:
-                session_id = self.transport.protocol.location.lstrip('/')
+                session_id = self.transport.protocol.location.rstrip('/').split('/')[-1]
                 if not base.simple_id(session_id):
                     log.err("Invalid Session ID: %r"%( session_id, ))
                     self.write_error("session invalid")

@@ -53,20 +53,20 @@ def _url_params(request, key=None):
         else:
             return host.rsplit(':', 1)[0]
     host = request.get_host()
+    if request.is_secure():
+        protocol = 'wss'
+    else:
+        protocol = 'ws'
     params = {
         "session_key":key, 
         "host": host, 
         "host_base": base_host(host), 
         "server_port": settings.SETTINGS['server_port'], 
+        'protocol':protocol, 
     }
     return params
 def _redirect_url(request):
-    if request.is_secure():
-        protocol = 'wss'
-    else:
-        protocol = 'ws'
     params = _url_params(request)
-    params['protocol'] = protocol
     base = '%(protocol)s://%(host)s'%params
     return base + reverse('ssws_redirect')
 
@@ -112,10 +112,9 @@ def proxy_redirector(request, proxy_redirect_template=settings.SETTINGS['proxy_r
     response['X-Accel-Redirect'] = url
     return response
 
-
-@with_websocket_enable
+@with_websocket_enable()
 @render_to('ssws/chatsample.html')
 def chat_sample(request):
     return {
-        'redirect_url':_redirect_url(request), 
+        'request':request, 
     }
