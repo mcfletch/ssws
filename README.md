@@ -37,3 +37,9 @@ $ ssws-session --readable --channel default example-session
 $ ssws-message --message "Hello World" default
 ```
 
+## TODO
+
+* per-connection interest management (connection passes in the set of channels it is interested in)
+* can update those live
+* don't write channel messages into session structures, store channel messages in the channels for 
+  X period, new subscriptions to a channel either get everything, or everything since message Y
