@@ -4,6 +4,7 @@ from django.contrib.auth.decorators import login_required
 from django.core.urlresolvers import reverse
 from annoying.decorators import render_to
 import subprocess
+from functools import wraps
 from . import settings
 
 try:
@@ -32,14 +33,10 @@ def add_session(key, readable=(), writable=()):
 class WSRedirect(HttpResponseRedirect):
     allowed_schemes = ['ws', 'wss']
 
-def default_callback(request):
+def default_callback(request, read_channels, write_channels):
     """Default enable callback, uses session_key for the session secret and enables 'default' channel read"""
     key = request.session.session_key
-    add_session(
-        key, 
-        readable=settings.SETTINGS.get('default_readable'), 
-        writable=settings.SETTINGS.get('default_writable'), 
-    )
+    add_session(key, readable=read_channels, writable=write_channels)
     return key
 
 def _resolved(callback):
@@ -73,42 +70,50 @@ def _redirect_url(request):
     base = '%(protocol)s://%(host)s'%params
     return base + reverse('ssws_redirect')
 
-@login_required
-def websocket_enable(
-    request, 
-    websocket_proxy_url=settings.SETTINGS['proxy_url_template'], 
+def with_websocket_enable(
+    read_channels=settings.SETTINGS['default_readable'], 
+    write_channels=settings.SETTINGS['default_writable'], 
+    enable_callback =settings.SETTINGS['auth_callback'], 
+    websocket_proxy_url = settings.SETTINGS['proxy_url_template'], 
     websocket_direct_url=settings.SETTINGS['direct_url_template'],  
-    enable_callback = None, 
 ):
-    """Perform ssws authentication (login checking)
+    """Wrap a request with ssws authorization setup...
     
-    For a logged-in user:
-    
-        * sets up the ssws session permissions via enable_callback
-          if not provided, .settings.SETTINGS['auth_callback'] is used 
-        * redirects to either websocket_proxy_url or websocket_direct_url
-          based on the presence of 
-    if enable_callback is None then `default_callback` is used,
-    which uses the django session_key as the secret key and 
-    enables a single reading channel ('default').
+    read_channels -- override the channels to grant read on for this view
+    write_channels -- override the channels to grant write on for this view
+    enable_callback -- a callable taking (request, read_channels, write_channels)
+    websocket_proxy_url -- override URL to which to direct when running under nginx
+    websocket_direct_url -- override URL to which to direct when running in dev mode
     """
-    if not enable_callback:
-        enable_callback = _resolved(
-            settings.SETTINGS.get('auth_callback') or default_callback
-        )
-    key = enable_callback( request )
-    params = _url_params(request, key)
-    # now need to get the request to go to the actual callback...
-    if _under_proxy(request):
-        relative = websocket_proxy_url%params
-        response = HttpResponse( '' )
-        response['X-Accel-Redirect'] = relative
-        return response
-    else:
-        relative = websocket_direct_url % params
-        return WSRedirect( relative )
+    def with_websocket_decorator(function):
+        @wraps(function)
+        def with_websocket(request, *args,  **named):
+            callback = _resolved( enable_callback )
+            request.ssws_key = callback( request, read_channels, write_channels )
+            params = _url_params(request, request.ssws_key)
+            if _under_proxy(request):
+                url = websocket_proxy_url%params
+            else:
+                url = websocket_direct_url % params
+            request.ssws_url = url
+            return function(request, *args,  **named)
+        return with_websocket
+    return with_websocket_decorator
 
 @login_required
+def proxy_redirector(request, proxy_redirect_template=settings.SETTINGS['proxy_redirect_template']):
+    """Redirect on nginx incoming message to the internal websockets location"""
+    # TODO: do we really want this to be parameterized, if so,
+    # we should get this from settings and allow for overrides...
+    key = request.session.session_key
+    params = _url_params(request, key)
+    url = proxy_redirect_template%params
+    response = HttpResponse( '' )
+    response['X-Accel-Redirect'] = url
+    return response
+
+
+@with_websocket_enable
 @render_to('ssws/chatsample.html')
 def chat_sample(request):
     return {
